@@ -25,10 +25,10 @@ output "oidc_provider_arn" {
 
 output "cluster_iam_role_arn" {
   description = "Cluster IAM role ARN"
-  value       = aws_iam_role.cluster.arn
+  value       = local.cluster_role_arn
 }
 
 output "node_group_iam_role_arn" {
   description = "Node group IAM role ARN"
-  value       = aws_iam_role.node_group.arn
+  value       = local.node_role_arn
 }

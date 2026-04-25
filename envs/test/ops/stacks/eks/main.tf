@@ -3,18 +3,24 @@ locals {
 }
 
 module "eks" {
-  source = "../../../../../../modules/eks/cluster"
+  source = "../../../../../modules/eks/cluster"
 
   cluster_name    = var.cluster_name
   cluster_version = var.cluster_version
 
-  vpc_id     = data.terraform_remote_state.network.outputs.vpc_id
-  subnet_ids = data.terraform_remote_state.network.outputs.private_subnet_ids
+  vpc_id     = data.aws_vpc.selected.id
+  subnet_ids = data.aws_subnets.private.ids
 
-  # 托管节点组
+  # 使用现有 IAM 角色
+  create_cluster_role = false
+  cluster_role_name   = "AmazonEKSAutoClusterRole"
+  create_node_role    = false
+  node_role_name      = "bgw-eks-node-role-test"
+
+  # 托管节点组 - 匹配现网配置
   eks_managed_node_groups = {
-    default = {
-      name           = "default-node-group"
+    bgw_infra_ec2_group = {
+      name           = "bgw-infra-ec2-group"
       instance_types = var.node_instance_types
 
       min_size     = var.node_min_size
