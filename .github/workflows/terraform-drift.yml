@@ -1,0 +1,104 @@
+name: Terraform Drift Detection
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 每天 UTC 02:00 (北京时间 10:00)
+  workflow_dispatch:  # 支持手动触发
+
+env:
+  AWS_REGION: ap-northeast-1
+  TF_IN_AUTOMATION: true
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+jobs:
+  discover-stacks:
+    runs-on: ubuntu-latest
+    outputs:
+      stacks: ${{ steps.discover.outputs.stacks }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Discover All Stacks
+        id: discover
+        run: |
+          STACKS=$(find envs/test/ops/stacks -mindepth 1 -maxdepth 1 -type d | jq -R -s -c 'split("\n")[:-1]')
+          echo "stacks=$STACKS" >> $GITHUB_OUTPUT
+          echo "Discovered stacks: $STACKS"
+
+  drift-check:
+    needs: discover-stacks
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        stack: ${{ fromJson(needs.discover-stacks.outputs.stacks) }}
+      fail-fast: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::151062088992:role/OpsPlanRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.0"
+
+      - name: Terraform Init
+        working-directory: ${{ matrix.stack }}
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Drift Detection
+        working-directory: ${{ matrix.stack }}
+        run: |
+          set +e
+          terraform plan -detailed-exitcode
+          EXIT_CODE=$?
+          set -e
+          
+          if [ "$EXIT_CODE" -eq 2 ]; then
+            echo "DRIFT_DETECTED=true" >> $GITHUB_ENV
+            echo "::warning::Drift detected in ${{ matrix.stack }}"
+          elif [ "$EXIT_CODE" -eq 1 ]; then
+            echo "Plan failed"
+            exit 1
+          else
+            echo "DRIFT_DETECTED=false" >> $GITHUB_ENV
+            echo "No drift in ${{ matrix.stack }}"
+          fi
+
+      - name: Create Drift Issue
+        if: env.DRIFT_DETECTED == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `[Drift] ${{ matrix.stack }} - ${new Date().toISOString().split('T')[0]}`;
+            const body = `## 检测到 Drift
+            
+**Stack**: ${{ matrix.stack }}
+**检测时间**: ${new Date().toISOString()}
+**工作流**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+### 处理步骤
+1. 登录 AWS Console 确认变更内容
+2. 判断是手工修改还是 Terraform 配置需要更新
+3. 执行相应的恢复操作
+4. 关闭此 Issue
+
+/cc @bitget-wallet-ai-team/ops-team`;
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['drift', 'ops']
+            });

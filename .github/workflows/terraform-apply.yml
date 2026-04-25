@@ -1,0 +1,89 @@
+name: Terraform Apply
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'envs/**'
+      - 'modules/**'
+
+env:
+  AWS_REGION: ap-northeast-1
+  TF_IN_AUTOMATION: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      stacks: ${{ steps.detect.outputs.stacks }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Changed Stacks
+        id: detect
+        run: |
+          chmod +x scripts/detect_changed_stacks.sh
+          # 获取上次commit到本次的变更
+          git diff --name-only HEAD~1 HEAD
+          STACKS=$(scripts/detect_changed_stacks.sh)
+          echo "stacks=$STACKS" >> $GITHUB_OUTPUT
+          echo "Detected stacks: $STACKS"
+
+  plan-and-apply:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: ${{ needs.detect-changes.outputs.stacks != '[]' }}
+    strategy:
+      matrix:
+        stack: ${{ fromJson(needs.detect-changes.outputs.stacks) }}
+      fail-fast: false
+    environment:
+      name: test-ops-apply
+      url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::151062088992:role/OpsApplyRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.0"
+
+      - name: Terraform Init
+        working-directory: ${{ matrix.stack }}
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Re-Plan (Post-Merge)
+        working-directory: ${{ matrix.stack }}
+        run: terraform plan -out=tfplan
+
+      - name: Show Plan
+        working-directory: ${{ matrix.stack }}
+        run: terraform show tfplan
+
+      - name: Terraform Apply
+        working-directory: ${{ matrix.stack }}
+        run: terraform apply -auto-approve tfplan
+
+      - name: Output Results
+        working-directory: ${{ matrix.stack }}
+        run: |
+          echo "## Apply Completed for ${{ matrix.stack }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Stack: ${{ matrix.stack }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Triggered by: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY

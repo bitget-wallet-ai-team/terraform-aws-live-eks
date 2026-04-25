@@ -1,0 +1,9 @@
+/modules/                   @bitget-wallet-ai-team/platform-team
+/envs/test/ops/             @bitget-wallet-ai-team/ops-team
+/envs/test/ops/stacks/      @bitget-wallet-ai-team/ops-team
+/envs/test/ops/stacks/eks/  @bitget-wallet-ai-team/ops-team @bitget-wallet-ai-team/platform-team
+/global/bootstrap/          @bitget-wallet-ai-team/platform-admin
+/.github/workflows/         @bitget-wallet-ai-team/platform-team
+
+# 全局默认
+*                           @bitget-wallet-ai-team/platform-team

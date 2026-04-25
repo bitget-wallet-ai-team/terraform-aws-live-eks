@@ -1,0 +1,9 @@
+# Checkov 安全策略
+# 用于检测 Terraform 配置中的安全问题
+
+# 跳过某些规则（如果需要）
+# skip-check:
+#   - CKV_AWS_21  # S3 MFA Delete
+
+# 要求启用的检查
+# 这里可以自定义检查规则
