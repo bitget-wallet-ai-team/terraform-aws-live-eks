@@ -1,4 +1,4 @@
-# EKS Cluster IAM Role
+# EKS Cluster IAM Role - 支持现有角色
 data "aws_iam_policy_document" "cluster_assume_role" {
   statement {
     effect = "Allow"
@@ -10,60 +10,74 @@ data "aws_iam_policy_document" "cluster_assume_role" {
   }
 }
 
+# 查找现有 cluster role
+data "aws_iam_role" "existing_cluster" {
+  count = var.create_cluster_role ? 0 : 1
+  name  = var.cluster_role_name
+}
+
 resource "aws_iam_role" "cluster" {
+  count = var.create_cluster_role ? 1 : 0
+
   name               = "${var.cluster_name}-cluster-role"
   assume_role_policy = data.aws_iam_policy_document.cluster_assume_role.json
 
   tags = var.tags
 }
 
+locals {
+  cluster_role_arn = var.create_cluster_role ? aws_iam_role.cluster[0].arn : data.aws_iam_role.existing_cluster[0].arn
+  cluster_role_name = var.create_cluster_role ? aws_iam_role.cluster[0].name : data.aws_iam_role.existing_cluster[0].name
+}
+
 resource "aws_iam_role_policy_attachment" "cluster_policies" {
-  for_each = toset([
+  for_each = var.create_cluster_role ? toset([
     "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy",
     "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController",
-  ])
+  ]) : toset([])
 
   policy_arn = each.value
-  role       = aws_iam_role.cluster.name
+  role       = local.cluster_role_name
 }
 
 # EKS Cluster
 resource "aws_eks_cluster" "this" {
   name     = var.cluster_name
   version  = var.cluster_version
-  role_arn = aws_iam_role.cluster.arn
+  role_arn = local.cluster_role_arn
 
   vpc_config {
     subnet_ids             = var.subnet_ids
-    endpoint_public_access = true
-    public_access_cidrs    = ["0.0.0.0/0"]
+    endpoint_public_access = var.endpoint_public_access
+    public_access_cidrs    = var.public_access_cidrs
   }
 
-  enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
-
-  depends_on = [
-    aws_iam_role_policy_attachment.cluster_policies,
-  ]
+  enabled_cluster_log_types = var.enabled_cluster_log_types
 
   tags = var.tags
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 # OIDC Provider
-locals {
-  oidc_issuer = replace(aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://", "")
+data "tls_certificate" "eks" {
+  count = var.enable_oidc_provider ? 1 : 0
+  url   = aws_eks_cluster.this.identity[0].oidc[0].issuer
 }
 
 resource "aws_iam_openid_connect_provider" "this" {
   count = var.enable_oidc_provider ? 1 : 0
 
   client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"]
+  thumbprint_list = data.tls_certificate.eks[0].certificates[*].sha1_fingerprint
   url             = aws_eks_cluster.this.identity[0].oidc[0].issuer
 
   tags = var.tags
 }
 
-# Node Group IAM Role
+# Node Group IAM Role - 支持现有角色
 data "aws_iam_policy_document" "node_group_assume_role" {
   statement {
     effect = "Allow"
@@ -75,22 +89,35 @@ data "aws_iam_policy_document" "node_group_assume_role" {
   }
 }
 
+# 查找现有 node role
+data "aws_iam_role" "existing_node" {
+  count = var.create_node_role ? 0 : 1
+  name  = var.node_role_name
+}
+
 resource "aws_iam_role" "node_group" {
+  count = var.create_node_role ? 1 : 0
+
   name               = "${var.cluster_name}-node-group-role"
   assume_role_policy = data.aws_iam_policy_document.node_group_assume_role.json
 
   tags = var.tags
 }
 
+locals {
+  node_role_arn = var.create_node_role ? aws_iam_role.node_group[0].arn : data.aws_iam_role.existing_node[0].arn
+  node_role_name = var.create_node_role ? aws_iam_role.node_group[0].name : data.aws_iam_role.existing_node[0].name
+}
+
 resource "aws_iam_role_policy_attachment" "node_group_policies" {
-  for_each = toset([
+  for_each = var.create_node_role ? toset([
     "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
     "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
     "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
-  ])
+  ]) : toset([])
 
   policy_arn = each.value
-  role       = aws_iam_role.node_group.name
+  role       = local.node_role_name
 }
 
 # EKS Managed Node Groups
@@ -99,7 +126,7 @@ resource "aws_eks_node_group" "this" {
 
   cluster_name    = aws_eks_cluster.this.name
   node_group_name = each.value.name
-  node_role_arn   = aws_iam_role.node_group.arn
+  node_role_arn   = local.node_role_arn
   subnet_ids      = var.subnet_ids
 
   instance_types = each.value.instance_types
@@ -114,10 +141,6 @@ resource "aws_eks_node_group" "this" {
   update_config {
     max_unavailable_percentage = 25
   }
-
-  depends_on = [
-    aws_iam_role_policy_attachment.node_group_policies,
-  ]
 
   tags = var.tags
 }

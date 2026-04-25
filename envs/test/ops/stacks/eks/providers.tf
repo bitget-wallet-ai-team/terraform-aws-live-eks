@@ -21,14 +21,21 @@ provider "aws" {
   }
 }
 
-# 读取 network stack 输出
-data "terraform_remote_state" "network" {
-  backend = "s3"
-  config = {
-    bucket = "terraform-state-${data.aws_caller_identity.current.account_id}"
-    key    = "test/ops/network/terraform.tfstate"
-    region = var.aws_region
+# 临时使用本地值替代 remote state
+data "aws_vpc" "selected" {
+  filter {
+    name   = "tag:Name"
+    values = ["bk-openclaw-poc*"]
   }
 }
 
-data "aws_caller_identity" "current" {}
+data "aws_subnets" "private" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.selected.id]
+  }
+  filter {
+    name   = "tag:Name"
+    values = ["*bgw-infra*"]
+  }
+}

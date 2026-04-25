@@ -50,5 +50,13 @@ done
 if [ ${#STACKS[@]} -eq 0 ]; then
     echo '[]'
 else
-    printf '%s\n' "${STACKS[@]}" | jq -R . | jq -s .
+    # 使用 printf 输出 JSON 数组格式
+    echo -n '['
+    for i in "${!STACKS[@]}"; do
+        if [ $i -gt 0 ]; then
+            echo -n ','
+        fi
+        printf '"%s"' "${STACKS[$i]}"
+    done
+    echo ']'
 fi
