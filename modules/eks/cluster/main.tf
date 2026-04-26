@@ -75,6 +75,10 @@ resource "aws_iam_openid_connect_provider" "this" {
   url             = aws_eks_cluster.this.identity[0].oidc[0].issuer
 
   tags = var.tags
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 # Node Group IAM Role - 支持现有角色
@@ -143,6 +147,10 @@ resource "aws_eks_node_group" "this" {
   }
 
   tags = var.tags
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 # Cluster Addons
@@ -155,6 +163,10 @@ resource "aws_eks_addon" "this" {
 
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
+
+  lifecycle {
+    ignore_changes = all
+  }
 
   depends_on = [aws_eks_node_group.this]
 }
