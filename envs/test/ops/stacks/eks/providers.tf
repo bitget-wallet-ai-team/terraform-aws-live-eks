@@ -11,6 +11,9 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+  
+  # Note: default_tags only apply to newly created resources
+  # Existing resources will not be affected
 
   default_tags {
     tags = {
@@ -21,11 +24,11 @@ provider "aws" {
   }
 }
 
-# 临时使用本地值替代 remote state
+# 使用现有 VPC 资源
 data "aws_vpc" "selected" {
   filter {
     name   = "tag:Name"
-    values = ["bk-openclaw-poc*"]
+    values = ["bk-openclaw-poc-10.15.16.0-20"]
   }
 }
 
@@ -36,6 +39,6 @@ data "aws_subnets" "private" {
   }
   filter {
     name   = "tag:Name"
-    values = ["*bgw-infra*"]
+    values = ["bgw-infra-subnet-*"]
   }
 }

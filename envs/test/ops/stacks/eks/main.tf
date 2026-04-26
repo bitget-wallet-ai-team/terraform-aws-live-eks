@@ -34,7 +34,7 @@ module "eks" {
   # 启用 OIDC provider
   enable_oidc_provider = true
 
-  # Cluster addons
+  # Cluster addons - 匹配现网配置
   cluster_addons = {
     coredns = {
       most_recent = true
@@ -45,9 +45,15 @@ module "eks" {
     vpc-cni = {
       most_recent = true
     }
+    metrics-server = {
+      most_recent = true
+    }
+    eks-pod-identity-agent = {
+      most_recent = true
+    }
   }
 
-  tags = {
+  tags = merge(var.tags, {
     Name = local.name
-  }
+  })
 }

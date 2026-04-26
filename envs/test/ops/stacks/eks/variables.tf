@@ -45,3 +45,9 @@ variable "node_max_size" {
   type        = number
   default     = 5
 }
+
+variable "tags" {
+  description = "Additional tags to apply"
+  type        = map(string)
+  default     = {}
+}

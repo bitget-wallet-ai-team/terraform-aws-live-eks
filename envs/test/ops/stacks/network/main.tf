@@ -1,5 +1,5 @@
 locals {
-  name = "${var.environment}-ops-network"
+  name = "bk-openclaw-poc"
 }
 
 module "vpc" {
