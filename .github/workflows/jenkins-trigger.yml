@@ -1,0 +1,47 @@
+name: Trigger Jenkins Pipeline on PR Approval
+
+on:
+  pull_request_review:
+    types: [approved]
+
+env:
+  JENKINS_URL: "http://k8s-jenkins-jenkins-84e6dd34b5-1827557328.ap-northeast-1.elb.amazonaws.com"
+  JENKINS_JOB: "terraform-base-apply"
+
+jobs:
+  trigger-jenkins:
+    runs-on: ubuntu-latest
+    if: github.event.review.state == 'approved'
+    
+    steps:
+      - name: Extract PR Information
+        id: pr-info
+        run: |
+          echo "PR Number: ${{ github.event.pull_request.number }}"
+          echo "PR URL: ${{ github.event.pull_request.html_url }}"
+          echo "Branch: ${{ github.event.pull_request.head.ref }}"
+          echo "Title: ${{ github.event.pull_request.title }}"
+          
+          # Create change description (max 400 chars)
+          CHANGE_DESC="${{ github.event.pull_request.title }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
+          if [ -n "$PR_BODY" ]; then
+            CHANGE_DESC="$CHANGE_DESC - $PR_BODY"
+          fi
+          CHANGE_DESC="${CHANGE_DESC:0:400}"
+          
+          echo "CHANGE_DESC=$CHANGE_DESC" >> $GITHUB_ENV
+
+      - name: Trigger Jenkins Pipeline
+        run: |
+          curl -X POST \
+            "${{ env.JENKINS_URL }}/job/${{ env.JENKINS_JOB }}/buildWithParameters" \
+            --user "${{ secrets.JENKINS_USER }}:${{ secrets.JENKINS_API_TOKEN }}" \
+            --data "ENVIRONMENT=dev" \
+            --data "GIT_BRANCH=${{ github.event.pull_request.head.ref }}" \
+            --data "TF_ACTION=plan" \
+            --data "GITHUB_PR_URL=${{ github.event.pull_request.html_url }}" \
+            --data "GITHUB_CHANGES=${{ env.CHANGE_DESC }}" \
+            --fail
+          
+          echo "Jenkins pipeline triggered successfully!"
