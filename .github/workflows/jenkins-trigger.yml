@@ -1,0 +1,129 @@
+name: Trigger Jenkins Apply After PR Merge
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  trigger-jenkins:
+    if: ${{ github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' }}
+    runs-on: ubuntu-latest
+    env:
+      JENKINS_URL: http://k8s-jenkins-jenkins-84e6dd34b5-1827557328.ap-northeast-1.elb.amazonaws.com
+      JENKINS_USER: ${{ secrets.JENKINS_USER }}
+      JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
+      JENKINS_JOB: terraform-base-apply
+      GIT_BRANCH: main
+      TF_ACTION: plan
+    steps:
+      - name: Checkout merged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Detect changed stacks
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          MERGE_SHA="${{ github.event.pull_request.merge_commit_sha || github.sha }}"
+
+          echo "Comparing ${BASE_SHA}..${MERGE_SHA}"
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$MERGE_SHA")
+
+          echo "Changed files:"
+          printf '%s\n' "$CHANGED_FILES"
+
+          if ! printf '%s\n' "$CHANGED_FILES" | grep -Eq '^(envs/|modules/)'; then
+            echo "No Terraform stack or module changes. Skip Jenkins trigger."
+            echo 'should_trigger=false' >> "$GITHUB_OUTPUT"
+            echo 'stacks=[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          STACKS_JSON=$(CHANGED_FILES="$CHANGED_FILES" python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          changed = [line.strip() for line in os.environ['CHANGED_FILES'].splitlines() if line.strip()]
+          stacks = set()
+          module_changed = False
+          for file in changed:
+              m = re.match(r'^envs/[^/]+/ops/stacks/([^/]+)/', file)
+              if m:
+                  stacks.add(f'envs/test/ops/stacks/{m.group(1)}')
+              if file.startswith('modules/'):
+                  module_changed = True
+
+          if module_changed:
+              root = Path('envs/test/ops/stacks')
+              if root.exists():
+                  for child in root.iterdir():
+                      if child.is_dir():
+                          stacks.add(child.as_posix())
+
+          print(json.dumps(sorted(stacks)))
+          PY
+          )
+
+          echo "Resolved stacks: $STACKS_JSON"
+          echo "should_trigger=true" >> "$GITHUB_OUTPUT"
+          echo "stacks=$STACKS_JSON" >> "$GITHUB_OUTPUT"
+
+      - name: Get Jenkins crumb
+        if: steps.detect.outputs.should_trigger == 'true'
+        id: crumb
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+            "$JENKINS_URL/crumbIssuer/api/json" > crumb.json
+          echo "crumb=$(jq -r '.crumb' crumb.json)" >> "$GITHUB_OUTPUT"
+          echo "crumb_field=$(jq -r '.crumbRequestField' crumb.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Jenkins apply job
+        if: steps.detect.outputs.should_trigger == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          CHANGE_SUMMARY=$(jq -n \
+            --arg title "${{ github.event.pull_request.title }}" \
+            --arg body "${{ github.event.pull_request.body || '' }}" \
+            '{title:$title, body:$body}')
+
+          echo '${{ steps.detect.outputs.stacks }}' | jq -r '.[]' | while read -r stack; do
+            [ -n "$stack" ] || continue
+            echo "Triggering Jenkins job for stack: $stack"
+
+            curl -i -fsS -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+              -X POST \
+              -H "${{ steps.crumb.outputs.crumb_field }}: ${{ steps.crumb.outputs.crumb }}" \
+              "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" \
+              --data-urlencode "GIT_BRANCH=$GIT_BRANCH" \
+              --data-urlencode "TF_ACTION=$TF_ACTION"
+          done
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Jenkins trigger summary"
+            echo ""
+            echo "- PR: ${{ github.event.pull_request.html_url }}"
+            echo "- Merged: ${{ github.event.pull_request.merged }}"
+            echo "- Target branch: ${{ github.event.pull_request.base.ref }}"
+            echo "- Triggered stacks: ${{ steps.detect.outputs.stacks || '[]' }}"
+          } >> "$GITHUB_STEP_SUMMARY"

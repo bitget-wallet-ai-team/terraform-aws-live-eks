@@ -11,7 +11,7 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
-  
+
   # Note: default_tags only apply to newly created resources
   # Existing resources will not be affected
 
