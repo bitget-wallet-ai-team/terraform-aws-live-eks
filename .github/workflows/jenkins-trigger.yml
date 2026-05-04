@@ -20,7 +20,7 @@ jobs:
       JENKINS_PASSWORD: ${{ secrets.JENKINS_PASSWORD }}
       JENKINS_JOB: terraform-base-apply
       GIT_BRANCH: main
-      TF_ACTION: apply
+      TF_ACTION: plan
     steps:
       - name: Checkout merged commit
         uses: actions/checkout@v4
@@ -113,10 +113,7 @@ jobs:
               -H "${{ steps.crumb.outputs.crumb_field }}: ${{ steps.crumb.outputs.crumb }}" \
               "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" \
               --data-urlencode "GIT_BRANCH=$GIT_BRANCH" \
-              --data-urlencode "TF_ACTION=$TF_ACTION" \
-              --data-urlencode "STACK_PATH=$stack" \
-              --data-urlencode "GITHUB_PR_URL=$PR_URL" \
-              --data-urlencode "GITHUB_CHANGES=$CHANGE_SUMMARY"
+              --data-urlencode "TF_ACTION=$TF_ACTION"
           done
 
       - name: Summary

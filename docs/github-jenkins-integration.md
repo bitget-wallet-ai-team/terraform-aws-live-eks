@@ -8,6 +8,8 @@ This repository uses `.github/workflows/jenkins-trigger.yml` to trigger the Jenk
 - the PR target branch is `main`
 - the merged PR changed files under `envs/` or `modules/`
 
+The current live Jenkins job is configured to run a fixed Terraform stack at `envs/test/ops/stacks/eks`, so the GitHub workflow now triggers a Jenkins `plan` run instead of an `apply` run.
+
 ## Jenkins endpoint
 
 - Jenkins URL: `http://k8s-jenkins-jenkins-84e6dd34b5-1827557328.ap-northeast-1.elb.amazonaws.com`
@@ -22,23 +24,24 @@ Add this repository secret:
 
 ## Parameters sent to Jenkins
 
-The workflow sends:
+The workflow sends only the parameters that the live Jenkins job currently defines:
 
 - `GIT_BRANCH=main`
-- `TF_ACTION=apply`
-- `STACK_PATH=<changed stack path>`
-- `GITHUB_PR_URL=<merged PR url>`
-- `GITHUB_CHANGES=<json string with PR title/body>`
+- `TF_ACTION=plan`
 
 ## Important
 
-The Jenkins job must define matching parameters if it expects to consume:
+The current live Jenkins job `terraform-base-apply` uses a fixed stack path inside Jenkins itself:
+
+- `TF_CONFIG_PATH=envs/test/ops/stacks/eks`
+
+It does **not** currently define or consume:
 
 - `STACK_PATH`
 - `GITHUB_PR_URL`
 - `GITHUB_CHANGES`
 
-If the Jenkins job does not yet expose those parameters, GitHub Actions still triggers the job, but Jenkins will ignore unknown values.
+If you want PR metadata or per-stack routing later, those parameters must be added to the Jenkins job first.
 
 ## Validation
 
