@@ -26,7 +26,7 @@ resource "aws_iam_role" "cluster" {
 }
 
 locals {
-  cluster_role_arn = var.create_cluster_role ? aws_iam_role.cluster[0].arn : data.aws_iam_role.existing_cluster[0].arn
+  cluster_role_arn  = var.create_cluster_role ? aws_iam_role.cluster[0].arn : data.aws_iam_role.existing_cluster[0].arn
   cluster_role_name = var.create_cluster_role ? aws_iam_role.cluster[0].name : data.aws_iam_role.existing_cluster[0].name
 }
 
@@ -109,7 +109,7 @@ resource "aws_iam_role" "node_group" {
 }
 
 locals {
-  node_role_arn = var.create_node_role ? aws_iam_role.node_group[0].arn : data.aws_iam_role.existing_node[0].arn
+  node_role_arn  = var.create_node_role ? aws_iam_role.node_group[0].arn : data.aws_iam_role.existing_node[0].arn
   node_role_name = var.create_node_role ? aws_iam_role.node_group[0].name : data.aws_iam_role.existing_node[0].name
 }
 
