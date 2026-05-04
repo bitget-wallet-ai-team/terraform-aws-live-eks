@@ -16,8 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       JENKINS_URL: http://k8s-jenkins-jenkins-84e6dd34b5-1827557328.ap-northeast-1.elb.amazonaws.com
-      JENKINS_USER: admin
-      JENKINS_PASSWORD: ${{ secrets.JENKINS_PASSWORD }}
+      JENKINS_USER: ${{ secrets.JENKINS_USER }}
+      JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
       JENKINS_JOB: terraform-base-apply
       GIT_BRANCH: main
       TF_ACTION: plan
@@ -87,7 +87,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS -u "$JENKINS_USER:$JENKINS_PASSWORD" \
+          curl -fsS -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
             "$JENKINS_URL/crumbIssuer/api/json" > crumb.json
           echo "crumb=$(jq -r '.crumb' crumb.json)" >> "$GITHUB_OUTPUT"
           echo "crumb_field=$(jq -r '.crumbRequestField' crumb.json)" >> "$GITHUB_OUTPUT"
@@ -108,7 +108,7 @@ jobs:
             [ -n "$stack" ] || continue
             echo "Triggering Jenkins job for stack: $stack"
 
-            curl -i -fsS -u "$JENKINS_USER:$JENKINS_PASSWORD" \
+            curl -i -fsS -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
               -X POST \
               -H "${{ steps.crumb.outputs.crumb_field }}: ${{ steps.crumb.outputs.crumb }}" \
               "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" \

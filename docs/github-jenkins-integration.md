@@ -20,7 +20,8 @@ The current live Jenkins job is configured to run a fixed Terraform stack at `en
 
 Add this repository secret:
 
-- `JENKINS_PASSWORD`: Jenkins password for user `admin`
+- `JENKINS_USER`: Jenkins username
+- `JENKINS_API_TOKEN`: Jenkins API token for that user
 
 ## Parameters sent to Jenkins
 
