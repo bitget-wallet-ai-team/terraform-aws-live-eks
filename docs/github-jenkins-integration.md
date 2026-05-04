@@ -51,3 +51,16 @@ Manual validation can be done by:
 1. merging a PR into `main`
 2. checking GitHub Actions run for `Trigger Jenkins Apply After PR Merge`
 3. checking Jenkins build queue / build history for `terraform-base-apply`
+
+## Clean import/bootstrap pattern
+
+For Terraform import/bootstrap work in this repo:
+
+- keep committed `backend.hcl` files on `backend "s3"`
+- provide bucket/region/lock-table through a local, uncommitted override file such as `backend.local`
+- initialize with both files, for example:
+  - `terraform init -backend-config=backend.hcl -backend-config=backend.local`
+- import directly into the shared S3 backend
+- backup state first with `terraform state pull > backup.tfstate`
+- never switch committed stack backends to `local`
+- never commit local `terraform.tfstate` files

@@ -31,11 +31,8 @@ echo ""
 NETWORK_DIR="$REPO_ROOT/envs/test/ops/stacks/network"
 cd "$NETWORK_DIR"
 
-echo "Step 1: 初始化 Terraform..."
-terraform init -backend-config=backend.hcl || {
-    echo "Note: Backend 可能不存在，将使用本地 state"
-    terraform init
-}
+echo "Step 1: 初始化 Terraform (remote S3 backend)..."
+terraform init -backend-config=backend.hcl -backend-config=backend.local
 
 echo ""
 echo "Step 2: 备份当前 state..."
@@ -131,11 +128,8 @@ echo ""
 EKS_DIR="$REPO_ROOT/envs/test/ops/stacks/eks"
 cd "$EKS_DIR"
 
-echo "Step 1: 初始化 Terraform..."
-terraform init -backend-config=backend.hcl || {
-    echo "Note: Backend 可能不存在，将使用本地 state"
-    terraform init
-}
+echo "Step 1: 初始化 Terraform (remote S3 backend)..."
+terraform init -backend-config=backend.hcl -backend-config=../network/backend.local
 
 echo ""
 echo "Step 2: 备份当前 state..."
@@ -194,5 +188,5 @@ echo "- EKS Stack: bgw-infra-eks-01 及节点组"
 echo ""
 echo "下一步:"
 echo "1. 检查 plan 输出，确认无意外变更"
-echo "2. 提交 state 文件到 git (如果使用本地 backend)"
-echo "3. 配置 S3 backend 并迁移 state"
+echo "2. 保持远程 S3 backend 作为唯一共享 state 来源"
+echo "3. 如需调整 backend 参数，仅修改未提交的 backend.local 覆盖文件"
