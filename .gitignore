@@ -44,3 +44,4 @@ plan.md
 
 # Backup
 *.backup
+.hermes/

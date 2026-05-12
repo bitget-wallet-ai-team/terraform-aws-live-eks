@@ -2,13 +2,48 @@
 
 ## Behavior
 
-This repository uses `.github/workflows/jenkins-trigger.yml` to trigger the Jenkins job `terraform-base-apply` when:
+This repository uses `.github/workflows/jenkins-trigger.yml` to trigger the
+Jenkins job `terraform-base-apply` once per changed stack when:
 
 - a pull request is merged
 - the PR target branch is `main`
 - the merged PR changed files under `envs/` or `modules/`
 
-The current live Jenkins job is configured to run a fixed Terraform stack at `envs/test/ops/stacks/eks`, so the GitHub workflow now triggers a Jenkins `plan` run instead of an `apply` run.
+The workflow detects which Terraform stacks are affected (one HTTP call per
+stack), and each call passes `STACK_PATH=envs/test/ops/stacks/<name>` plus
+`TF_ACTION=apply`.
+
+If `modules/` changed, every stack under `envs/test/ops/stacks/` is
+triggered.
+
+Apply order is enforced inside the workflow: any stack whose name ends with
+`-workload` is fired *after* its sibling cluster stack, so a Helm release
+never gets attempted before the EKS cluster is ACTIVE.
+
+## Jenkins job — pipeline-as-code
+
+The Jenkins job `terraform-base-apply` is **Pipeline → Pipeline script from
+SCM** pointing at this repo's root `Jenkinsfile`.
+
+Required job parameters (defined in the Jenkinsfile, declared on the job):
+
+| Name        | Type   | Default | Description                                   |
+|-------------|--------|---------|-----------------------------------------------|
+| GIT_BRANCH  | string | `main`  | Branch to check out                           |
+| STACK_PATH  | string | empty   | Repo-relative stack path. Empty = legacy `envs/test/ops/stacks/eks` |
+| TF_ACTION   | choice | `plan`  | `plan` or `apply`                             |
+
+The Jenkinsfile runs:
+1. checkout the requested branch
+2. validate the stack directory exists
+3. `terraform init -backend-config=backend.hcl` inside the stack
+4. `terraform validate`
+5. `terraform plan -out=tfplan`
+6. `terraform apply tfplan` (only when `TF_ACTION=apply`)
+
+AWS credentials are expected to be wired into the Jenkins agent already
+(IRSA on the k8s pod, or a Jenkins credential exposing AWS_*); the
+Jenkinsfile does not inject them.
 
 ## Jenkins endpoint
 
@@ -16,38 +51,35 @@ The current live Jenkins job is configured to run a fixed Terraform stack at `en
 - Job: `terraform-base-apply`
 - Trigger API: `/job/terraform-base-apply/buildWithParameters`
 
-## Required GitHub secret
-
-Add this repository secret:
+## Required GitHub secrets
 
 - `JENKINS_USER`: Jenkins username
 - `JENKINS_API_TOKEN`: Jenkins API token for that user
 
-## Parameters sent to Jenkins
+## Migration notes (one-time Jenkins changes)
 
-The workflow sends only the parameters that the live Jenkins job currently defines:
+The previous job hard-coded `TF_CONFIG_PATH=envs/test/ops/stacks/eks` and
+only supported `TF_ACTION=plan`. To pick up the new behaviour:
 
-- `GIT_BRANCH=main`
-- `TF_ACTION=plan`
+1. Edit job `terraform-base-apply`:
+   - Definition: **Pipeline script from SCM**
+   - SCM: this repo, Branches to build: `*/main`
+   - Script Path: `Jenkinsfile`
+2. Add string parameter `STACK_PATH` (default empty).
+3. Ensure `TF_ACTION` parameter is a Choice of `plan, apply` (the
+   Jenkinsfile's `parameters {}` block will reconcile this on first run).
+4. Remove or ignore the old `TF_CONFIG_PATH` parameter — the Jenkinsfile
+   uses `STACK_PATH`.
 
-## Important
-
-The current live Jenkins job `terraform-base-apply` uses a fixed stack path inside Jenkins itself:
-
-- `TF_CONFIG_PATH=envs/test/ops/stacks/eks`
-
-It does **not** currently define or consume:
-
-- `STACK_PATH`
-- `GITHUB_PR_URL`
-- `GITHUB_CHANGES`
-
-If you want PR metadata or per-stack routing later, those parameters must be added to the Jenkins job first.
+After the migration, the very next merged PR triggers one Jenkins build per
+changed stack, each with the right `STACK_PATH` and `TF_ACTION=apply`.
 
 ## Validation
 
-Manual validation can be done by:
+Manual validation:
 
-1. merging a PR into `main`
-2. checking GitHub Actions run for `Trigger Jenkins Apply After PR Merge`
-3. checking Jenkins build queue / build history for `terraform-base-apply`
+1. merge a PR into `main` that touches a stack
+2. check GitHub Actions run for `Trigger Jenkins Apply After PR Merge` —
+   the summary lists `Triggered stacks`
+3. check Jenkins build queue / build history for `terraform-base-apply` —
+   one build per stack, each with its `STACK_PATH` parameter visible
