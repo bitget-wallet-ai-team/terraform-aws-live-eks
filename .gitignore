@@ -4,6 +4,11 @@
 *.tfstate.*
 *.tfvars
 !terraform.tfvars.example
+# Allow specific non-secret tfvars to be tracked (Jenkins clones from git
+# and needs them to terraform plan/apply). These files must NOT contain
+# secrets — only environment config (cluster name, instance types, etc.).
+!envs/test/ops/stacks/golang-eks/terraform.tfvars
+!envs/test/ops/stacks/golang-eks-workload/terraform.tfvars
 .terraform.lock.hcl
 
 # Crash log files

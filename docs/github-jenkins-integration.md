@@ -20,12 +20,14 @@ Apply order is enforced inside the workflow: any stack whose name ends with
 `-workload` is fired *after* its sibling cluster stack, so a Helm release
 never gets attempted before the EKS cluster is ACTIVE.
 
-## Jenkins job — pipeline-as-code
+## Jenkins job — inline pipeline (current)
 
-The Jenkins job `terraform-base-apply` is **Pipeline → Pipeline script from
-SCM** pointing at this repo's root `Jenkinsfile`.
+The Jenkins job `terraform-base-apply` is a Pipeline job whose script is
+defined inline on the job (not Pipeline-from-SCM). It runs in a Kubernetes
+pod with `serviceAccountName: jenkins-terraform-sa` (IRSA → AWS creds) and
+multi-container layout (`terraform`, `git`, `aws-cli`, `helm`).
 
-Required job parameters (defined in the Jenkinsfile, declared on the job):
+Job parameters:
 
 | Name        | Type   | Default | Description                                   |
 |-------------|--------|---------|-----------------------------------------------|
@@ -33,17 +35,24 @@ Required job parameters (defined in the Jenkinsfile, declared on the job):
 | STACK_PATH  | string | empty   | Repo-relative stack path. Empty = legacy `envs/test/ops/stacks/eks` |
 | TF_ACTION   | choice | `plan`  | `plan` or `apply`                             |
 
-The Jenkinsfile runs:
-1. checkout the requested branch
-2. validate the stack directory exists
-3. `terraform init -backend-config=backend.hcl` inside the stack
-4. `terraform validate`
-5. `terraform plan -out=tfplan`
-6. `terraform apply tfplan` (only when `TF_ACTION=apply`)
+Pipeline stages:
+1. **Initialize** — resolve `TF_CONFIG_PATH` from `STACK_PATH` (fallback `envs/test/ops/stacks/eks`)
+2. **Checkout Code** — git clone with `github_pat` credential
+3. **Verify AWS Identity** — `aws sts get-caller-identity` (proves IRSA)
+4. **Terraform Init** — `terraform init -reconfigure -backend-config=backend.hcl` (when present)
+5. **Terraform Validate**
+6. **Terraform Plan** — writes `tfplan`
+7. **Approval** — manual gate, only when `TF_ACTION=apply`
+8. **Terraform Apply** — `terraform apply tfplan` (only when approved)
 
-AWS credentials are expected to be wired into the Jenkins agent already
-(IRSA on the k8s pod, or a Jenkins credential exposing AWS_*); the
-Jenkinsfile does not inject them.
+## Required tfvars in git
+
+Because Jenkins clones the repo and runs `terraform plan` in the cloned
+working copy, every stack referenced by `STACK_PATH` **must have its
+`terraform.tfvars` committed to git** (this repo's `.gitignore` whitelists
+specific stacks via `!path/to/terraform.tfvars`). These files must NOT
+contain secrets — only environment configuration. Pull secrets from
+Jenkins credentials, AWS Secrets Manager, or env vars.
 
 ## Jenkins endpoint
 
@@ -56,24 +65,6 @@ Jenkinsfile does not inject them.
 - `JENKINS_USER`: Jenkins username
 - `JENKINS_API_TOKEN`: Jenkins API token for that user
 
-## Migration notes (one-time Jenkins changes)
-
-The previous job hard-coded `TF_CONFIG_PATH=envs/test/ops/stacks/eks` and
-only supported `TF_ACTION=plan`. To pick up the new behaviour:
-
-1. Edit job `terraform-base-apply`:
-   - Definition: **Pipeline script from SCM**
-   - SCM: this repo, Branches to build: `*/main`
-   - Script Path: `Jenkinsfile`
-2. Add string parameter `STACK_PATH` (default empty).
-3. Ensure `TF_ACTION` parameter is a Choice of `plan, apply` (the
-   Jenkinsfile's `parameters {}` block will reconcile this on first run).
-4. Remove or ignore the old `TF_CONFIG_PATH` parameter — the Jenkinsfile
-   uses `STACK_PATH`.
-
-After the migration, the very next merged PR triggers one Jenkins build per
-changed stack, each with the right `STACK_PATH` and `TF_ACTION=apply`.
-
 ## Validation
 
 Manual validation:
@@ -82,4 +73,6 @@ Manual validation:
 2. check GitHub Actions run for `Trigger Jenkins Apply After PR Merge` —
    the summary lists `Triggered stacks`
 3. check Jenkins build queue / build history for `terraform-base-apply` —
-   one build per stack, each with its `STACK_PATH` parameter visible
+   one build per stack, each with its `STACK_PATH` parameter visible.
+   `apply` builds pause at the **Approval** stage until a human clicks
+   Apply in the Jenkins UI.
