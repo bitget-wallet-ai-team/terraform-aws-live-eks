@@ -1,0 +1,18 @@
+aws_region  = "ap-northeast-1"
+environment = "test"
+
+cluster_name    = "golang-eks-cluster-1"
+cluster_version = "1.35"
+
+# 节点组: 2 × t3.medium (≈ 3.4 vCPU + 7 GiB allocatable)
+# 满足 3 × (1C/1G) requests + 系统/kube 开销
+node_instance_types = ["t3.medium"]
+node_desired_size   = 2
+node_min_size       = 2
+node_max_size       = 4
+
+# Cluster admin: Jenkins 角色 + SSO role
+cluster_admin_role_arns = {
+  jenkins = "arn:aws:iam::151062088992:role/jenkins-terraform-role"
+  sso     = "arn:aws:iam::151062088992:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_aws-GENApo-bk-openclaw-rw_c6ed0030010b6653"
+}

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: golang-app
+description: Golang demo workload (3 pods, 1C1G each) on EKS
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
