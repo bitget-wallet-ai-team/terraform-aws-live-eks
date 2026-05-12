@@ -20,7 +20,7 @@ jobs:
       JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
       JENKINS_JOB: terraform-base-apply
       GIT_BRANCH: main
-      TF_ACTION: plan
+      TF_ACTION: apply
     steps:
       - name: Checkout merged commit
         uses: actions/checkout@v4
@@ -73,7 +73,13 @@ jobs:
                       if child.is_dir():
                           stacks.add(child.as_posix())
 
-          print(json.dumps(sorted(stacks)))
+          # Apply ordering: cluster stacks before workload stacks so that
+          # helm_release lands after the cluster is ACTIVE.
+          def sort_key(p):
+              return (1 if p.endswith('-workload') else 0, p)
+
+          ordered = sorted(stacks, key=sort_key)
+          print(json.dumps(ordered))
           PY
           )
 
@@ -92,28 +98,23 @@ jobs:
           echo "crumb=$(jq -r '.crumb' crumb.json)" >> "$GITHUB_OUTPUT"
           echo "crumb_field=$(jq -r '.crumbRequestField' crumb.json)" >> "$GITHUB_OUTPUT"
 
-      - name: Trigger Jenkins apply job
+      - name: Trigger Jenkins apply job (per stack)
         if: steps.detect.outputs.should_trigger == 'true'
         shell: bash
         run: |
           set -euo pipefail
 
-          PR_URL="${{ github.event.pull_request.html_url }}"
-          CHANGE_SUMMARY=$(jq -n \
-            --arg title "${{ github.event.pull_request.title }}" \
-            --arg body "${{ github.event.pull_request.body || '' }}" \
-            '{title:$title, body:$body}')
-
           echo '${{ steps.detect.outputs.stacks }}' | jq -r '.[]' | while read -r stack; do
             [ -n "$stack" ] || continue
-            echo "Triggering Jenkins job for stack: $stack"
+            echo "Triggering Jenkins job for stack: $stack (action=$TF_ACTION)"
 
             curl -i -fsS -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
               -X POST \
               -H "${{ steps.crumb.outputs.crumb_field }}: ${{ steps.crumb.outputs.crumb }}" \
               "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" \
               --data-urlencode "GIT_BRANCH=$GIT_BRANCH" \
-              --data-urlencode "TF_ACTION=$TF_ACTION"
+              --data-urlencode "TF_ACTION=$TF_ACTION" \
+              --data-urlencode "STACK_PATH=$stack"
           done
 
       - name: Summary
@@ -125,5 +126,6 @@ jobs:
             echo "- PR: ${{ github.event.pull_request.html_url }}"
             echo "- Merged: ${{ github.event.pull_request.merged }}"
             echo "- Target branch: ${{ github.event.pull_request.base.ref }}"
+            echo "- TF_ACTION: ${{ env.TF_ACTION }}"
             echo "- Triggered stacks: ${{ steps.detect.outputs.stacks || '[]' }}"
           } >> "$GITHUB_STEP_SUMMARY"
